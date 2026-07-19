@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import ReactDOM from "react-dom/client";
 import "./index.css";
 import StaffLogin from "./portals/StaffLogin";
+import AdminDashboard from "./portals/AdminDashboard";
 
 function App() {
   const [session, setSession] = useState(null);
@@ -10,10 +11,33 @@ function App() {
     return <StaffLogin onAuthenticated={setSession} />;
   }
 
-  // TODO: once authenticated, route into onboarding form (if needsOnboarding),
-  // then password change (if needsPasswordChange), then the main Staff Portal
-  // UI — reuse the screens already built in BDWaksStaffPortal.jsx, swapping
-  // MOCK_STAFF for `session.staff` and grantedModules for `session.modules`.
+  if (session.needsOnboarding || session.needsPasswordChange) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-6">
+        <div className="bg-white rounded-2xl p-6 border border-bdborder max-w-md w-full">
+          <h2 className="font-display text-xl font-bold mb-2">Almost there</h2>
+          <p className="text-sm text-bdmuted mb-1">Welcome, {session.staff.full_name}</p>
+          {session.needsOnboarding && (
+            <p className="text-xs mt-3 text-red-600">⚠ Onboarding form must be completed before password change. (Screen coming in the next build pass.)</p>
+          )}
+          {session.needsPasswordChange && (
+            <p className="text-xs mt-1 text-amber-600">⚠ Password change required. (Screen coming in the next build pass.)</p>
+          )}
+          <button
+            onClick={() => setSession({ ...session, needsOnboarding: false, needsPasswordChange: false })}
+            className="w-full mt-4 py-2.5 rounded-xl text-sm font-semibold bg-bdgreen text-bdgold"
+          >
+            Skip for now (testing only)
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (session.modules.includes("admin")) {
+    return <AdminDashboard session={session} />;
+  }
+
   return (
     <div className="min-h-screen flex items-center justify-center p-6">
       <div className="bg-white rounded-2xl p-6 border border-bdborder max-w-md w-full">
@@ -21,12 +45,7 @@ function App() {
         <p className="text-sm text-bdmuted mb-1">Welcome, {session.staff.full_name}</p>
         <p className="text-xs text-bdmuted mb-3">Staff ID: {session.staff.staff_id}</p>
         <p className="text-xs text-bdmuted">Modules granted: {session.modules.join(", ") || "none yet"}</p>
-        {session.needsOnboarding && (
-          <p className="text-xs mt-3 text-red-600">⚠ Onboarding form must be completed before password change.</p>
-        )}
-        {session.needsPasswordChange && (
-          <p className="text-xs mt-1 text-amber-600">⚠ Password change required.</p>
-        )}
+        <p className="text-xs mt-3 text-bdmuted">Non-admin module dashboards are built in upcoming passes.</p>
       </div>
     </div>
   );

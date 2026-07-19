@@ -1,6 +1,51 @@
 import { supabase } from "./supabaseClient";
 
 // ---------------------------------------------------------------------------
+// COMPANY BANK ACCOUNT
+// ---------------------------------------------------------------------------
+export async function getCompanyBankAccount() {
+  const { data, error } = await supabase.from("company_bank_account").select("*").eq("id", 1).maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+export async function setCompanyBankAccount({ bankName, accountNumber, accountName, updatedBy }) {
+  const { error } = await supabase
+    .from("company_bank_account")
+    .upsert({ id: 1, bank_name: bankName, account_number: accountNumber, account_name: accountName, updated_by: updatedBy, updated_at: new Date().toISOString() });
+  if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
+// STAFF ENROLLMENT (real, atomic — via enroll_staff Postgres function)
+// ---------------------------------------------------------------------------
+export async function enrollStaffReal({ fullName, email, phone, modules, permissions }) {
+  const { data, error } = await supabase.rpc("enroll_staff", {
+    p_full_name: fullName,
+    p_email: email,
+    p_phone: phone,
+    p_modules: modules,
+    p_permissions: permissions,
+  });
+  if (error) throw error;
+  return data[0]; // { id, staff_id }
+}
+
+// ---------------------------------------------------------------------------
+// MESSAGES (Admin: platform-wide visibility)
+// ---------------------------------------------------------------------------
+export async function getAllMessages() {
+  const { data, error } = await supabase
+    .from("messages")
+    .select("*")
+    .order("sent_at", { ascending: false })
+    .limit(50);
+  if (error) throw error;
+  return data;
+}
+
+
+// ---------------------------------------------------------------------------
 // PRODUCTS / CATALOG
 // ---------------------------------------------------------------------------
 export async function getCategories() {
