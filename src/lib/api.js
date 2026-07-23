@@ -32,8 +32,80 @@ export async function enrollStaffReal({ fullName, email, phone, modules, permiss
 }
 
 // ---------------------------------------------------------------------------
-// MESSAGES (Admin: platform-wide visibility)
+// RIDERS
 // ---------------------------------------------------------------------------
+export async function getAllRiders() {
+  const { data, error } = await supabase
+    .from("riders")
+    .select("id, rider_id, full_name, email, phone, employment_status, is_online, created_at")
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return data;
+}
+
+export async function getPendingRiderApplications() {
+  const { data, error } = await supabase
+    .from("rider_applications")
+    .select("*")
+    .eq("status", "pending")
+    .order("applied_at", { ascending: true });
+  if (error) throw error;
+  return data;
+}
+
+export async function getAllRiderApplications() {
+  const { data, error } = await supabase
+    .from("rider_applications")
+    .select("*")
+    .order("applied_at", { ascending: false });
+  if (error) throw error;
+  return data;
+}
+
+export async function decideRiderApplication(applicationId, { status, reviewedBy, rejectionReason }) {
+  const updatePayload = {
+    status,
+    reviewed_by: reviewedBy,
+    reviewed_at: new Date().toISOString(),
+  };
+  if (status === "rejected") {
+    updatePayload.rejection_reason = rejectionReason || null;
+    const reapply = new Date();
+    reapply.setDate(reapply.getDate() + 30);
+    updatePayload.reapply_after = reapply.toISOString().slice(0, 10);
+  }
+
+  const { error } = await supabase.from("rider_applications").update(updatePayload).eq("id", applicationId);
+  if (error) throw error;
+
+  // On approval, create the actual rider account and carry over bank details
+  if (status === "accepted") {
+    const { data: app, error: fetchErr } = await supabase
+      .from("rider_applications")
+      .select("*")
+      .eq("id", applicationId)
+      .single();
+    if (fetchErr) throw fetchErr;
+
+    const riderIdCode = `BDW/RD-${Date.now().toString().slice(-4)}`;
+    const { data: hashData, error: hashErr } = await supabase.rpc("hash_password", { plain_password: "bdwaks2025" });
+    if (hashErr) throw hashErr;
+
+    const { error: insertErr } = await supabase.from("riders").insert({
+      rider_id: riderIdCode,
+      full_name: app.full_name,
+      email: app.email,
+      phone: app.phone,
+      password_hash: hashData,
+      bank_name: app.bank_name,
+      bank_account_number: app.bank_account_number,
+      employment_status: "active",
+      must_change_password: true,
+    });
+    if (insertErr) throw insertErr;
+  }
+}
+
 export async function getAllMessages() {
   const { data, error } = await supabase
     .from("messages")
@@ -260,4 +332,151 @@ export async function decideFundRequest(requestId, { status, approvedAmount, dec
     })
     .eq("id", requestId);
   if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
+// CUSTOMER-FACING PRODUCT BROWSING (real)
+// ---------------------------------------------------------------------------
+export async function getAllCategoriesWithSubcategories() {
+  const { data, error } = await supabase
+    .from("categories")
+    .select("id, name, subcategories(id, name)")
+    .order("name");
+  if (error) throw error;
+  return data;
+}
+
+export async function getAllAvailableProducts() {
+  const { data, error } = await supabase
+    .from("products")
+    .select("id, name, brand, image_url, is_available, subcategory:subcategories(id, name, category:categories(id, name)), product_variants(id, size_label, cost_price, stock_qty)")
+    .eq("is_available", true);
+  if (error) throw error;
+  return data;
+}
+
+export async function getOrdersForCustomer(customerId) {
+  const { data, error } = await supabase
+    .from("orders")
+    .select("*")
+    .eq("customer_id", customerId)
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return data;
+}
+
+// ---------------------------------------------------------------------------
+// RIDER-FACING (real)
+// ---------------------------------------------------------------------------
+export async function setRiderOnlineStatus(riderId, isOnline) {
+  const { error } = await supabase.from("riders").update({ is_online: isOnline }).eq("id", riderId);
+  if (error) throw error;
+}
+
+export async function getRiderIncomingAssignments(riderId) {
+  const { data, error } = await supabase
+    .from("order_rider_assignments")
+    .select("*, order:orders(*)")
+    .eq("rider_id", riderId)
+    .eq("response", "pending")
+    .order("assigned_at", { ascending: false });
+  if (error) throw error;
+  return data;
+}
+
+export async function getRiderActiveOrder(riderId) {
+  const { data, error } = await supabase
+    .from("orders")
+    .select("*")
+    .eq("rider_id", riderId)
+    .in("status", ["dispatched", "en_route"])
+    .maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+export async function respondToAssignment(assignmentId, response, riderId, orderId) {
+  const { error: assignErr } = await supabase
+    .from("order_rider_assignments")
+    .update({ response, responded_at: new Date().toISOString() })
+    .eq("id", assignmentId);
+  if (assignErr) throw assignErr;
+
+  if (response === "accepted") {
+    const { error: orderErr } = await supabase
+      .from("orders")
+      .update({ rider_id: riderId, assigned_at: new Date().toISOString(), status: "dispatched" })
+      .eq("id", orderId);
+    if (orderErr) throw orderErr;
+  }
+}
+
+export async function updateOrderStatus(orderId, status) {
+  const payload = { status };
+  if (status === "delivered") payload.delivered_at = new Date().toISOString();
+  const { error } = await supabase.from("orders").update(payload).eq("id", orderId);
+  if (error) throw error;
+}
+
+export async function getRiderEarnings(riderId) {
+  const { data, error } = await supabase
+    .from("rider_earnings_log")
+    .select("*")
+    .eq("rider_id", riderId)
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return data;
+}
+
+// ---------------------------------------------------------------------------
+// RIDER APPLICATION (public form submission)
+// ---------------------------------------------------------------------------
+export async function submitRiderApplication(payload) {
+  const { error } = await supabase.from("rider_applications").insert(payload);
+  if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
+// CUSTOMER ACCOUNTS — signup, loyalty, referrals, feedback
+// ---------------------------------------------------------------------------
+export async function signupCustomer({ fullName, email, phone, password }) {
+  const { data, error } = await supabase.rpc("signup_customer", {
+    p_full_name: fullName, p_email: email, p_phone: phone, p_password: password,
+  });
+  if (error) throw error;
+  return data[0]; // { id, referral_code }
+}
+
+export async function getLoyaltyBalance(customerId) {
+  const { data, error } = await supabase
+    .from("loyalty_points_ledger")
+    .select("points_change")
+    .eq("customer_id", customerId);
+  if (error) throw error;
+  return data.reduce((sum, row) => sum + row.points_change, 0);
+}
+
+export async function getReferralStats(customerId) {
+  const { data, error } = await supabase
+    .from("referral_rewards")
+    .select("*")
+    .eq("referrer_customer_id", customerId);
+  if (error) throw error;
+  const unused = data.filter((r) => !r.free_delivery_used);
+  return { total: data.length, freeDeliveriesAvailable: unused.length, records: data };
+}
+
+export async function submitOrderFeedback({ orderId, customerId, rating, comments }) {
+  const { error } = await supabase.from("order_feedback").insert({
+    order_id: orderId, customer_id: customerId, rating, comments,
+    submitted_at: new Date().toISOString(),
+    available_until: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+  });
+  if (error) throw error;
+}
+
+export async function getOrderById(orderId) {
+  const { data, error } = await supabase.from("orders").select("*, order_items(*, product:products(name))").eq("id", orderId).single();
+  if (error) throw error;
+  return data;
 }
