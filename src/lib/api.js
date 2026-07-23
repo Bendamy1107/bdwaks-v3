@@ -140,12 +140,6 @@ export async function getProductsByCategory(categoryId) {
   return data;
 }
 
-export async function getPricingConfig() {
-  const { data, error } = await supabase.from("pricing_config").select("*").single();
-  if (error) throw error;
-  return data;
-}
-
 // ---------------------------------------------------------------------------
 // ORDERS
 // ---------------------------------------------------------------------------
