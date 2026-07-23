@@ -213,7 +213,16 @@ export default function AdminDashboard({ session }) {
                     <div key={a.id} className="bg-white rounded-xl p-4 border border-bdborder">
                       <p className="text-sm font-semibold">{a.full_name}</p>
                       <p className="text-xs text-bdmuted">{a.phone} · {a.email}</p>
-                      <p className="text-xs text-bdmuted">{a.vehicle_type} — {a.vehicle_model}</p>
+                      <p className="text-xs text-bdmuted">📍 {a.home_address}</p>
+                      <p className="text-xs text-bdmuted">🎂 DOB: {a.date_of_birth}</p>
+                      <p className="text-xs text-bdmuted">{a.vehicle_type === "Motorcycle" ? "🏍️" : a.vehicle_type === "Tricycle" ? "🛺" : "🚗"} {a.vehicle_type} — {a.vehicle_model} {a.plate_number ? `(${a.plate_number})` : ""}</p>
+                      <p className="text-xs text-bdmuted">🪪 License: {a.has_license ? `Yes — ${a.license_number}` : "None provided"}</p>
+                      <p className="text-xs text-bdmuted">🚨 Emergency 1: {a.emergency_contact_name} ({a.emergency_contact_relationship}) — {a.emergency_contact_phone}</p>
+                      {a.emergency_contact_2_name && (
+                        <p className="text-xs text-bdmuted">🚨 Emergency 2: {a.emergency_contact_2_name} ({a.emergency_contact_2_relationship}) — {a.emergency_contact_2_phone}</p>
+                      )}
+                      <p className="text-xs text-bdmuted">🏦 {a.bank_name} — {a.bank_account_number}</p>
+                      <p className="text-xs text-bdmuted">🕓 {a.availability} · Start: {a.earliest_start_date}</p>
                       <div className="flex gap-2 mt-3">
                         <button onClick={() => handleDecideApplication(a.id, "accepted")} className="flex-1 py-2 rounded-lg text-xs font-semibold bg-bdgreen text-bdgold">✅ Accept</button>
                         <button onClick={() => handleDecideApplication(a.id, "rejected")} className="flex-1 py-2 rounded-lg text-xs font-semibold border border-red-500 text-red-600">❌ Reject</button>

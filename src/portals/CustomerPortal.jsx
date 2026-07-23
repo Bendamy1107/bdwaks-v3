@@ -325,10 +325,11 @@ function ConfirmedView({ order, onHome }) {
 
 function BecomeRiderView({ onBack }) {
   const [form, setForm] = useState({
-    full_name: "", email: "", phone: "", home_address: "",
+    full_name: "", email: "", phone: "", home_address: "", date_of_birth: "",
     vehicle_type: "Motorcycle", vehicle_model: "", plate_number: "",
     has_license: false, license_number: "",
     emergency_contact_name: "", emergency_contact_phone: "", emergency_contact_relationship: "",
+    emergency_contact_2_name: "", emergency_contact_2_phone: "", emergency_contact_2_relationship: "",
     bank_name: "", bank_account_number: "",
     availability: "", earliest_start_date: "",
   });
@@ -337,12 +338,24 @@ function BecomeRiderView({ onBack }) {
   const [errorMsg, setErrorMsg] = useState("");
 
   const set = (key) => (e) => setForm({ ...form, [key]: e.target.value });
+  const licenseRequired = form.vehicle_type === "Vehicle";
 
   const submit = async () => {
-    if (!form.full_name || !form.email || !form.phone) { setErrorMsg("❌ Fill in required fields."); return; }
+    if (!form.full_name || !form.email || !form.phone || !form.home_address || !form.date_of_birth) {
+      setErrorMsg("❌ Fill in your name, email, phone, address, and date of birth."); return;
+    }
+    if (!form.emergency_contact_name || !form.emergency_contact_phone) {
+      setErrorMsg("❌ At least one emergency contact is required."); return;
+    }
+    if (!form.availability || !form.earliest_start_date) {
+      setErrorMsg("❌ Fill in your availability and earliest start date."); return;
+    }
+    if (licenseRequired && !form.license_number) {
+      setErrorMsg("❌ A driver's license is required for vehicle (car) applicants."); return;
+    }
     setSubmitting(true); setErrorMsg("");
     try {
-      await submitRiderApplication(form);
+      await submitRiderApplication({ ...form, has_license: !!form.license_number });
       setSubmitted(true);
     } catch (err) {
       console.error(err);
@@ -366,20 +379,83 @@ function BecomeRiderView({ onBack }) {
   return (
     <div className="pb-10">
       <HeaderBar title="Become a Rider" onBack={onBack} />
-      <div className="p-4 space-y-3">
-        <input placeholder="Full name" value={form.full_name} onChange={set("full_name")} className="w-full text-sm border border-bdborder rounded-lg px-3 py-2" />
-        <input placeholder="Email" value={form.email} onChange={set("email")} className="w-full text-sm border border-bdborder rounded-lg px-3 py-2" />
-        <input placeholder="Phone" value={form.phone} onChange={set("phone")} className="w-full text-sm border border-bdborder rounded-lg px-3 py-2" />
-        <input placeholder="Vehicle model" value={form.vehicle_model} onChange={set("vehicle_model")} className="w-full text-sm border border-bdborder rounded-lg px-3 py-2" />
-        <input placeholder="Emergency contact name" value={form.emergency_contact_name} onChange={set("emergency_contact_name")} className="w-full text-sm border border-bdborder rounded-lg px-3 py-2" />
-        <input placeholder="Emergency contact phone" value={form.emergency_contact_phone} onChange={set("emergency_contact_phone")} className="w-full text-sm border border-bdborder rounded-lg px-3 py-2" />
-        <input placeholder="Bank name" value={form.bank_name} onChange={set("bank_name")} className="w-full text-sm border border-bdborder rounded-lg px-3 py-2" />
-        <input placeholder="Account number" value={form.bank_account_number} onChange={set("bank_account_number")} className="w-full text-sm border border-bdborder rounded-lg px-3 py-2" />
+      <div className="p-4 space-y-4">
+
+        <FormSection title="👤 Personal details">
+          <input placeholder="Full name" value={form.full_name} onChange={set("full_name")} className="w-full text-sm border border-bdborder rounded-lg px-3 py-2" />
+          <input placeholder="Email" value={form.email} onChange={set("email")} className="w-full text-sm border border-bdborder rounded-lg px-3 py-2" />
+          <input placeholder="Phone" value={form.phone} onChange={set("phone")} className="w-full text-sm border border-bdborder rounded-lg px-3 py-2" />
+          <input placeholder="Home address" value={form.home_address} onChange={set("home_address")} className="w-full text-sm border border-bdborder rounded-lg px-3 py-2" />
+          <div>
+            <label className="text-xs text-bdmuted">Date of birth</label>
+            <input type="date" value={form.date_of_birth} onChange={set("date_of_birth")} className="w-full text-sm border border-bdborder rounded-lg px-3 py-2 mt-1" />
+          </div>
+        </FormSection>
+
+        <FormSection title="🚗 Vehicle details">
+          <div>
+            <label className="text-xs text-bdmuted">Vehicle type</label>
+            <select value={form.vehicle_type} onChange={set("vehicle_type")} className="w-full text-sm border border-bdborder rounded-lg px-3 py-2 mt-1">
+              <option value="Motorcycle">🏍️ Motorcycle</option>
+              <option value="Tricycle">🛺 Tricycle</option>
+              <option value="Vehicle">🚗 Vehicle (car)</option>
+            </select>
+          </div>
+          <input placeholder="Vehicle model" value={form.vehicle_model} onChange={set("vehicle_model")} className="w-full text-sm border border-bdborder rounded-lg px-3 py-2" />
+          <input placeholder="Plate number (if applicable)" value={form.plate_number} onChange={set("plate_number")} className="w-full text-sm border border-bdborder rounded-lg px-3 py-2" />
+        </FormSection>
+
+        <FormSection title="🪪 Driver's license">
+          <p className="text-xs text-bdmuted">
+            {licenseRequired ? "⚠️ Required for vehicle (car) applicants" : "Optional for motorcycle/tricycle applicants"}
+          </p>
+          <input
+            placeholder={licenseRequired ? "License number (required)" : "License number (optional)"}
+            value={form.license_number}
+            onChange={set("license_number")}
+            className="w-full text-sm border border-bdborder rounded-lg px-3 py-2"
+          />
+        </FormSection>
+
+        <FormSection title="🚨 Emergency contact 1">
+          <input placeholder="Full name" value={form.emergency_contact_name} onChange={set("emergency_contact_name")} className="w-full text-sm border border-bdborder rounded-lg px-3 py-2" />
+          <input placeholder="Phone number" value={form.emergency_contact_phone} onChange={set("emergency_contact_phone")} className="w-full text-sm border border-bdborder rounded-lg px-3 py-2" />
+          <input placeholder="Relationship" value={form.emergency_contact_relationship} onChange={set("emergency_contact_relationship")} className="w-full text-sm border border-bdborder rounded-lg px-3 py-2" />
+        </FormSection>
+
+        <FormSection title="🚨 Emergency contact 2 (optional)">
+          <input placeholder="Full name" value={form.emergency_contact_2_name} onChange={set("emergency_contact_2_name")} className="w-full text-sm border border-bdborder rounded-lg px-3 py-2" />
+          <input placeholder="Phone number" value={form.emergency_contact_2_phone} onChange={set("emergency_contact_2_phone")} className="w-full text-sm border border-bdborder rounded-lg px-3 py-2" />
+          <input placeholder="Relationship" value={form.emergency_contact_2_relationship} onChange={set("emergency_contact_2_relationship")} className="w-full text-sm border border-bdborder rounded-lg px-3 py-2" />
+        </FormSection>
+
+        <FormSection title="🏦 Bank / account details">
+          <input placeholder="Bank name" value={form.bank_name} onChange={set("bank_name")} className="w-full text-sm border border-bdborder rounded-lg px-3 py-2" />
+          <input placeholder="Account number" value={form.bank_account_number} onChange={set("bank_account_number")} className="w-full text-sm border border-bdborder rounded-lg px-3 py-2" />
+        </FormSection>
+
+        <FormSection title="🕓 Availability">
+          <input placeholder="e.g. Weekdays, 8am–6pm" value={form.availability} onChange={set("availability")} className="w-full text-sm border border-bdborder rounded-lg px-3 py-2" />
+          <div>
+            <label className="text-xs text-bdmuted">Earliest start date</label>
+            <input type="date" value={form.earliest_start_date} onChange={set("earliest_start_date")} className="w-full text-sm border border-bdborder rounded-lg px-3 py-2 mt-1" />
+          </div>
+        </FormSection>
+
         {errorMsg && <p className="text-xs text-red-600">{errorMsg}</p>}
         <button onClick={submit} disabled={submitting} className="w-full py-3.5 rounded-2xl font-semibold bg-bdgreen text-bdgold disabled:opacity-50">
-          {submitting ? "Submitting..." : "Submit application"}
+          {submitting ? "Submitting..." : "✅ Submit application"}
         </button>
       </div>
+    </div>
+  );
+}
+
+function FormSection({ title, children }) {
+  return (
+    <div className="bg-white rounded-2xl p-4 border border-bdborder space-y-2">
+      <p className="text-xs font-semibold text-bdmuted">{title}</p>
+      {children}
     </div>
   );
 }
