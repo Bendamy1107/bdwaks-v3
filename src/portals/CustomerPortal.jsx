@@ -4,12 +4,17 @@ import { loginCustomer } from "../lib/auth";
 import {
   getAllCategoriesWithSubcategories, getAllAvailableProducts, getCompanyBankAccount,
   createOrder, uploadPaymentProof, getOrdersForCustomer, submitRiderApplication,
-  signupCustomer, getLoyaltyBalance, getReferralStats, submitOrderFeedback,
+  signupCustomer, getLoyaltyBalance, getReferralStats, submitOrderFeedback, getPricingConfig,
 } from "../lib/api";
 
 const MARKUP_PERCENT = 20;
 const SERVICE_FEE_PERCENT = 10;
-const sellingPrice = (cost) => Math.round(cost * (1 + MARKUP_PERCENT / 100));
+// These are safe defaults shown before the live config loads; every screen
+// that computes prices should call sellingPrice()/getConfig() after the
+// PricingContext below has loaded the real values from pricing_config.
+let liveMarkupPercent = MARKUP_PERCENT;
+let liveServiceFeePercent = SERVICE_FEE_PERCENT;
+const sellingPrice = (cost) => Math.round(cost * (1 + liveMarkupPercent / 100));
 const naira = (n) => `₦${Number(n).toLocaleString("en-NG")}`;
 
 export default function CustomerPortal() {
@@ -23,6 +28,10 @@ export default function CustomerPortal() {
 
   useEffect(() => {
     getAllAvailableProducts().then(setProducts).catch(console.error).finally(() => setLoading(false));
+    getPricingConfig().then((cfg) => {
+      liveMarkupPercent = Number(cfg.markup_percent);
+      liveServiceFeePercent = Number(cfg.service_fee_percent);
+    }).catch(console.error);
   }, []);
 
   const addToCart = (product, variant) => {
@@ -143,7 +152,7 @@ function ProductCard({ product, onAdd }) {
 
 function CartView({ cart, updateQty, onBack, onCheckout }) {
   const subtotal = cart.reduce((s, c) => s + sellingPrice(c.costPrice) * c.qty, 0);
-  const serviceFee = Math.round(subtotal * (SERVICE_FEE_PERCENT / 100));
+  const serviceFee = Math.round(subtotal * (liveServiceFeePercent / 100));
   const total = subtotal + serviceFee;
 
   return (
@@ -199,9 +208,9 @@ function CheckoutView({ cart, customer, onBack, onConfirmed }) {
   useEffect(() => { getCompanyBankAccount().then(setBankAccount).catch(console.error); }, []);
 
   const subtotal = cart.reduce((s, c) => s + c.costPrice * c.qty, 0);
-  const markup = Math.round(subtotal * (MARKUP_PERCENT / 100));
+  const markup = Math.round(subtotal * (liveMarkupPercent / 100));
   const sellingSubtotal = subtotal + markup;
-  const serviceFee = Math.round(sellingSubtotal * (SERVICE_FEE_PERCENT / 100));
+  const serviceFee = Math.round(sellingSubtotal * (liveServiceFeePercent / 100));
   const deliveryFee = distance; // ₦1 per metre = ₦100 per 100m, exact
   const total = sellingSubtotal + serviceFee + deliveryFee;
 

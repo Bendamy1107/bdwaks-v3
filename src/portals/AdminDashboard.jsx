@@ -3,6 +3,10 @@ import {
   getAllStaff, getAllOrders, getPendingPaymentVerifications, verifyPayment,
   getCompanyBankAccount, setCompanyBankAccount, enrollStaffReal, getAllMessages,
   getAllRiders, getAllRiderApplications, decideRiderApplication,
+  getAllCategoriesWithSubcategories, getAllProductsForInventory, createCategory, createSubcategory,
+  createProduct, createProductVariant, updateVariantStock, updateVariantCost,
+  toggleProductAvailability, updateProductLowStockThreshold, getAllVendors, createVendor,
+  getPricingConfig, updatePricingConfigSecure,
 } from "../lib/api";
 
 const MODULES = ["admin", "finance", "payroll", "hr", "inventory", "rider_coordination", "general_manager"];
@@ -14,6 +18,8 @@ const NAV_ITEMS = [
   { key: "enroll", label: "Enroll Staff", emoji: "➕" },
   { key: "payments", label: "Payment Verification", emoji: "💳" },
   { key: "orders", label: "All Orders", emoji: "📦" },
+  { key: "inventory", label: "Inventory", emoji: "🧺" },
+  { key: "pricing", label: "Pricing", emoji: "💰" },
   { key: "riders", label: "Riders", emoji: "🏍️" },
   { key: "messages", label: "All Messages", emoji: "💬" },
   { key: "bank", label: "Bank Details", emoji: "🏦" },
@@ -186,6 +192,10 @@ export default function AdminDashboard({ session }) {
               ))}
             </div>
           )}
+
+          {!loading && tab === "inventory" && <InventoryPanel staffId={session.staff.id} />}
+
+          {!loading && tab === "pricing" && <PricingPanel staffId={session.staff.id} />}
 
           {!loading && tab === "riders" && (
             <div className="space-y-6">
@@ -372,6 +382,388 @@ function BankDetailsForm({ bankAccount, staffId, onSaved }) {
       <input placeholder="Account number" value={form.accountNumber} onChange={(e) => setForm({ ...form, accountNumber: e.target.value })} className="w-full text-sm border border-bdborder rounded-lg px-3 py-2" />
       <input placeholder="Account name" value={form.accountName} onChange={(e) => setForm({ ...form, accountName: e.target.value })} className="w-full text-sm border border-bdborder rounded-lg px-3 py-2" />
       <button onClick={save} disabled={saving} className="px-5 py-2.5 rounded-lg text-sm font-semibold bg-bdgreen text-bdgold disabled:opacity-50">{saving ? "Saving..." : "💾 Save changes"}</button>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// INVENTORY PANEL (self-contained — loads its own data)
+// ---------------------------------------------------------------------------
+function InventoryPanel({ staffId }) {
+  const [subtab, setSubtab] = useState("products"); // products | addProduct | categories | vendors
+  const [categories, setCategories] = useState([]);
+  const [products, setProducts] = useState([]);
+  const [vendors, setVendors] = useState([]);
+  const [markupMultiplier, setMarkupMultiplier] = useState(1.20);
+  const [loading, setLoading] = useState(true);
+
+  const loadAll = async () => {
+    setLoading(true);
+    try {
+      const [cats, prods, vends, pricing] = await Promise.all([
+        getAllCategoriesWithSubcategories(), getAllProductsForInventory(), getAllVendors(), getPricingConfig(),
+      ]);
+      setCategories(cats); setProducts(prods); setVendors(vends);
+      setMarkupMultiplier(1 + Number(pricing.markup_percent) / 100);
+    } catch (err) { console.error(err); }
+    finally { setLoading(false); }
+  };
+
+  useEffect(() => { loadAll(); }, []);
+
+  const lowStockCount = products.reduce((count, p) => {
+    const threshold = p.low_stock_threshold ?? 5;
+    return count + (p.product_variants || []).filter((v) => v.stock_qty < threshold).length;
+  }, 0);
+
+  return (
+    <div>
+      {lowStockCount > 0 && (
+        <div className="rounded-xl p-3 mb-4 bg-red-50 border border-red-200 flex items-center gap-2">
+          <span>⚠️</span>
+          <p className="text-xs text-red-700">{lowStockCount} size(s) are running low on stock</p>
+        </div>
+      )}
+
+      <div className="flex gap-2 mb-4 flex-wrap">
+        {[
+          { key: "products", label: "🧺 Products" },
+          { key: "addProduct", label: "➕ Add Product" },
+          { key: "categories", label: "🗂️ Categories" },
+          { key: "vendors", label: "🏬 Vendors" },
+        ].map((t) => (
+          <button key={t.key} onClick={() => setSubtab(t.key)}
+            className={`px-4 py-2 rounded-xl text-sm font-medium border ${subtab === t.key ? "bg-bdgreen text-bdgold border-bdgreen" : "bg-white border-bdborder"}`}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {loading && <p className="text-sm text-bdmuted">Loading inventory...</p>}
+
+      {!loading && subtab === "products" && (
+        <div className="space-y-2">
+          {products.length === 0 && <EmptyState emoji="🧺" text="No products yet — add your first one." />}
+          {products.map((p) => (
+            <ProductInventoryCard key={p.id} product={p} markup={markupMultiplier} onChanged={loadAll} />
+          ))}
+        </div>
+      )}
+
+      {!loading && subtab === "addProduct" && (
+        <AddProductForm categories={categories} staffId={staffId} onAdded={() => { loadAll(); setSubtab("products"); }} />
+      )}
+
+      {!loading && subtab === "categories" && (
+        <CategoryManager categories={categories} onChanged={loadAll} />
+      )}
+
+      {!loading && subtab === "vendors" && (
+        <VendorManager vendors={vendors} staffId={staffId} onChanged={loadAll} />
+      )}
+    </div>
+  );
+}
+
+function ProductInventoryCard({ product, markup, onChanged }) {
+  const [expanded, setExpanded] = useState(false);
+  const [threshold, setThreshold] = useState(product.low_stock_threshold ?? 5);
+
+  const toggleAvailable = async () => {
+    try { await toggleProductAvailability(product.id, !product.is_available); onChanged(); }
+    catch (err) { console.error(err); alert("❌ Failed to update."); }
+  };
+
+  const saveThreshold = async () => {
+    try { await updateProductLowStockThreshold(product.id, threshold); onChanged(); }
+    catch (err) { console.error(err); alert("❌ Failed to update threshold."); }
+  };
+
+  return (
+    <div className="bg-white rounded-2xl p-4 border border-bdborder">
+      <div className="flex justify-between items-start mb-1">
+        <div>
+          <p className="text-sm font-semibold">{product.name}</p>
+          <p className="text-xs text-bdmuted">{product.subcategory?.category?.name} → {product.subcategory?.name} · {product.brand}</p>
+        </div>
+        <button onClick={toggleAvailable} className={`text-[11px] font-semibold px-2.5 py-1 rounded-full ${product.is_available ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}>
+          {product.is_available ? "✅ Visible" : "❌ Hidden"}
+        </button>
+      </div>
+
+      <button onClick={() => setExpanded((e) => !e)} className="text-xs font-medium text-bdgreen mt-1 mb-2">
+        {expanded ? "Hide" : "Show"} sizes ({(product.product_variants || []).length})
+      </button>
+
+      {expanded && (
+        <div className="space-y-2">
+          {(product.product_variants || []).map((v) => (
+            <VariantRow key={v.id} variant={v} markup={markup} threshold={threshold} onChanged={onChanged} />
+          ))}
+          <div className="flex items-center gap-2 pt-2 border-t border-bdborder">
+            <span className="text-xs text-bdmuted">Low-stock alert below</span>
+            <input type="number" min={1} value={threshold} onChange={(e) => setThreshold(Number(e.target.value))} className="w-14 text-xs border border-bdborder rounded px-1 py-0.5" />
+            <button onClick={saveThreshold} className="text-[11px] font-semibold text-bdgreen">Save</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function VariantRow({ variant, markup, threshold, onChanged }) {
+  const [cost, setCost] = useState(variant.cost_price);
+  const [stock, setStock] = useState(variant.stock_qty);
+  const isLow = stock < threshold;
+
+  const save = async () => {
+    try {
+      await updateVariantCost(variant.id, cost);
+      await updateVariantStock(variant.id, stock);
+      onChanged();
+    } catch (err) { console.error(err); alert("❌ Failed to save."); }
+  };
+
+  return (
+    <div className={`flex items-center gap-2 text-xs rounded-lg px-3 py-2 ${isLow ? "bg-red-50" : "bg-bdivory"}`}>
+      <span className="font-medium w-16">{variant.size_label}</span>
+      <span className="text-bdmuted">Cost</span>
+      <input type="number" value={cost} onChange={(e) => setCost(Number(e.target.value))} className="w-20 border border-bdborder rounded px-1 py-0.5" />
+      <span className="font-semibold text-bdgreen">Sell ₦{Math.round(cost * markup).toLocaleString()}</span>
+      <span className="text-bdmuted">Stock</span>
+      <input type="number" value={stock} onChange={(e) => setStock(Number(e.target.value))} className={`w-16 border rounded px-1 py-0.5 ${isLow ? "border-red-400 text-red-600 font-semibold" : "border-bdborder"}`} />
+      <button onClick={save} className="ml-auto text-[11px] font-semibold text-bdgreen">💾 Save</button>
+    </div>
+  );
+}
+
+function AddProductForm({ categories, staffId, onAdded }) {
+  const [subcategoryId, setSubcategoryId] = useState("");
+  const [name, setName] = useState("");
+  const [brand, setBrand] = useState("");
+  const [variants, setVariants] = useState([{ size: "", cost: "", stock: "" }]);
+  const [submitting, setSubmitting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
+
+  const allSubcategories = categories.flatMap((c) => (c.subcategories || []).map((s) => ({ ...s, categoryName: c.name })));
+
+  const updateVariant = (i, key, value) => setVariants((vs) => vs.map((v, idx) => (idx === i ? { ...v, [key]: value } : v)));
+  const addVariantRow = () => setVariants((vs) => [...vs, { size: "", cost: "", stock: "" }]);
+
+  const submit = async () => {
+    if (!name || !subcategoryId) { setErrorMsg("❌ Pick a category and enter a product name."); return; }
+    setSubmitting(true); setErrorMsg("");
+    try {
+      const product = await createProduct({ subcategoryId, name, brand, createdBy: staffId });
+      const cleanVariants = variants.filter((v) => v.size && v.cost);
+      for (const v of cleanVariants) {
+        await createProductVariant({ productId: product.id, sizeLabel: v.size, costPrice: Number(v.cost), stockQty: Number(v.stock) || 0 });
+      }
+      onAdded();
+    } catch (err) {
+      console.error(err);
+      setErrorMsg("❌ " + (err.message || "Failed to add product."));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="bg-white rounded-2xl p-5 border border-bdborder space-y-3">
+      <select value={subcategoryId} onChange={(e) => setSubcategoryId(e.target.value)} className="w-full text-sm border border-bdborder rounded-lg px-3 py-2">
+        <option value="">Select category / subcategory</option>
+        {allSubcategories.map((s) => <option key={s.id} value={s.id}>{s.categoryName} → {s.name}</option>)}
+      </select>
+      {allSubcategories.length === 0 && <p className="text-xs text-amber-600">⚠️ No categories yet — add one in the Categories tab first.</p>}
+
+      <input placeholder="Product name" value={name} onChange={(e) => setName(e.target.value)} className="w-full text-sm border border-bdborder rounded-lg px-3 py-2" />
+      <input placeholder="Brand" value={brand} onChange={(e) => setBrand(e.target.value)} className="w-full text-sm border border-bdborder rounded-lg px-3 py-2" />
+
+      <p className="text-xs font-semibold text-bdmuted pt-1">Size variants — selling price auto-calculates at +20%</p>
+      {variants.map((v, i) => (
+        <div key={i} className="grid grid-cols-3 gap-2">
+          <input placeholder="Size (5kg)" value={v.size} onChange={(e) => updateVariant(i, "size", e.target.value)} className="text-sm border border-bdborder rounded-lg px-2 py-2" />
+          <input placeholder="Cost price" type="number" value={v.cost} onChange={(e) => updateVariant(i, "cost", e.target.value)} className="text-sm border border-bdborder rounded-lg px-2 py-2" />
+          <input placeholder="Stock qty" type="number" value={v.stock} onChange={(e) => updateVariant(i, "stock", e.target.value)} className="text-sm border border-bdborder rounded-lg px-2 py-2" />
+        </div>
+      ))}
+      <button onClick={addVariantRow} className="text-xs font-semibold text-bdgreen">➕ Add another size</button>
+
+      {errorMsg && <p className="text-xs text-red-600">{errorMsg}</p>}
+      <button onClick={submit} disabled={submitting} className="w-full py-3 rounded-xl font-semibold bg-bdgreen text-bdgold disabled:opacity-50">
+        {submitting ? "Adding..." : "✅ Add product"}
+      </button>
+    </div>
+  );
+}
+
+function CategoryManager({ categories, onChanged }) {
+  const [newCategory, setNewCategory] = useState("");
+  const [subFor, setSubFor] = useState(null);
+  const [newSub, setNewSub] = useState("");
+
+  const addCategory = async () => {
+    if (!newCategory) return;
+    try { await createCategory(newCategory); setNewCategory(""); onChanged(); }
+    catch (err) { console.error(err); alert("❌ Failed — category may already exist."); }
+  };
+
+  const addSubcategory = async (categoryId) => {
+    if (!newSub) return;
+    try { await createSubcategory(categoryId, newSub); setNewSub(""); setSubFor(null); onChanged(); }
+    catch (err) { console.error(err); alert("❌ Failed to add subcategory."); }
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="bg-white rounded-2xl p-4 border border-bdborder flex gap-2">
+        <input placeholder="New category name" value={newCategory} onChange={(e) => setNewCategory(e.target.value)} className="flex-1 text-sm border border-bdborder rounded-lg px-3 py-2" />
+        <button onClick={addCategory} className="px-4 py-2 rounded-lg text-xs font-semibold bg-bdgreen text-bdgold">➕ Add</button>
+      </div>
+
+      {categories.map((c) => (
+        <div key={c.id} className="bg-white rounded-2xl p-4 border border-bdborder">
+          <p className="text-sm font-semibold mb-2">🗂️ {c.name}</p>
+          <div className="flex flex-wrap gap-1.5 mb-2">
+            {(c.subcategories || []).map((s) => (
+              <span key={s.id} className="text-[11px] px-2.5 py-1 rounded-full bg-bdivory">{s.name}</span>
+            ))}
+          </div>
+          {subFor === c.id ? (
+            <div className="flex gap-2">
+              <input placeholder="Subcategory name" value={newSub} onChange={(e) => setNewSub(e.target.value)} className="flex-1 text-xs border border-bdborder rounded-lg px-2 py-1.5" />
+              <button onClick={() => addSubcategory(c.id)} className="text-xs font-semibold text-bdgreen">Save</button>
+            </div>
+          ) : (
+            <button onClick={() => setSubFor(c.id)} className="text-xs font-semibold text-bdgreen">➕ Add subcategory</button>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function VendorManager({ vendors, staffId, onChanged }) {
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({ name: "", address: "", phone: "", productsSupplied: "", paymentTerms: "outright" });
+
+  const submit = async () => {
+    if (!form.name) return;
+    try { await createVendor({ ...form, createdBy: staffId }); setForm({ name: "", address: "", phone: "", productsSupplied: "", paymentTerms: "outright" }); setShowForm(false); onChanged(); }
+    catch (err) { console.error(err); alert("❌ Failed to add vendor."); }
+  };
+
+  return (
+    <div className="space-y-3">
+      {vendors.map((v) => (
+        <div key={v.id} className="bg-white rounded-2xl p-4 border border-bdborder">
+          <p className="text-sm font-semibold">🏬 {v.name}</p>
+          <p className="text-xs text-bdmuted">{v.address}</p>
+          <p className="text-xs text-bdmuted">{v.phone}</p>
+          <p className="text-xs mt-1">Supplies: {v.products_supplied}</p>
+          <span className={`inline-block mt-1 text-[10px] font-semibold px-2 py-0.5 rounded-full capitalize ${v.payment_terms === "credit" ? "bg-amber-100 text-amber-700" : "bg-green-100 text-green-700"}`}>
+            {v.payment_terms}
+          </span>
+        </div>
+      ))}
+
+      {!showForm ? (
+        <button onClick={() => setShowForm(true)} className="w-full py-3 rounded-xl font-semibold border border-bdborder">➕ Add vendor</button>
+      ) : (
+        <div className="bg-white rounded-2xl p-4 border border-bdborder space-y-2">
+          <input placeholder="Vendor name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="w-full text-sm border border-bdborder rounded-lg px-3 py-2" />
+          <input placeholder="Address" value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} className="w-full text-sm border border-bdborder rounded-lg px-3 py-2" />
+          <input placeholder="Phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className="w-full text-sm border border-bdborder rounded-lg px-3 py-2" />
+          <input placeholder="Products supplied" value={form.productsSupplied} onChange={(e) => setForm({ ...form, productsSupplied: e.target.value })} className="w-full text-sm border border-bdborder rounded-lg px-3 py-2" />
+          <div className="flex gap-2">
+            {["outright", "credit"].map((t) => (
+              <button key={t} onClick={() => setForm({ ...form, paymentTerms: t })} className={`flex-1 py-2 rounded-lg text-xs font-medium capitalize border ${form.paymentTerms === t ? "bg-bdgreen text-bdgold border-bdgreen" : "border-bdborder"}`}>{t}</button>
+            ))}
+          </div>
+          <button onClick={submit} className="w-full py-2.5 rounded-lg text-sm font-semibold bg-bdgreen text-bdgold">Save vendor</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// PRICING PANEL — the only place markup % can be changed, Admin-only
+// ---------------------------------------------------------------------------
+function PricingPanel({ staffId }) {
+  const [config, setConfig] = useState(null);
+  const [form, setForm] = useState({ markupPercent: "", serviceFeePercent: "", deliveryFeePer100m: "" });
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
+  const [saved, setSaved] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const data = await getPricingConfig();
+      setConfig(data);
+      setForm({
+        markupPercent: data.markup_percent,
+        serviceFeePercent: data.service_fee_percent,
+        deliveryFeePer100m: data.delivery_fee_per_100m,
+      });
+    } catch (err) { console.error(err); }
+    finally { setLoading(false); }
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const save = async () => {
+    setSaving(true); setErrorMsg(""); setSaved(false);
+    try {
+      await updatePricingConfigSecure({
+        staffId,
+        markupPercent: Number(form.markupPercent),
+        serviceFeePercent: Number(form.serviceFeePercent),
+        deliveryFeePer100m: Number(form.deliveryFeePer100m),
+      });
+      setSaved(true);
+      await load();
+    } catch (err) {
+      console.error(err);
+      setErrorMsg("❌ " + (err.message || "Only Admin can update pricing."));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) return <p className="text-sm text-bdmuted">Loading pricing config...</p>;
+
+  return (
+    <div className="bg-white rounded-2xl p-5 border border-bdborder space-y-4 max-w-md">
+      <div className="rounded-xl p-3 bg-amber-50 border border-amber-200">
+        <p className="text-xs text-amber-700">🔒 Only Admin can change these — protected at the database level, not just hidden from other roles.</p>
+      </div>
+
+      <div>
+        <label className="text-xs font-semibold text-bdmuted">Product markup %</label>
+        <input type="number" step="0.01" value={form.markupPercent} onChange={(e) => setForm({ ...form, markupPercent: e.target.value })} className="w-full text-sm border border-bdborder rounded-lg px-3 py-2 mt-1" />
+      </div>
+      <div>
+        <label className="text-xs font-semibold text-bdmuted">Service fee %</label>
+        <input type="number" step="0.01" value={form.serviceFeePercent} onChange={(e) => setForm({ ...form, serviceFeePercent: e.target.value })} className="w-full text-sm border border-bdborder rounded-lg px-3 py-2 mt-1" />
+      </div>
+      <div>
+        <label className="text-xs font-semibold text-bdmuted">Delivery fee per 100m (₦)</label>
+        <input type="number" step="0.01" value={form.deliveryFeePer100m} onChange={(e) => setForm({ ...form, deliveryFeePer100m: e.target.value })} className="w-full text-sm border border-bdborder rounded-lg px-3 py-2 mt-1" />
+      </div>
+
+      {errorMsg && <p className="text-xs text-red-600">{errorMsg}</p>}
+      {saved && <p className="text-xs text-green-600">✅ Saved — takes effect immediately across the site.</p>}
+
+      <button onClick={save} disabled={saving} className="w-full py-3 rounded-xl font-semibold bg-bdgreen text-bdgold disabled:opacity-50">
+        {saving ? "Saving..." : "💾 Save pricing"}
+      </button>
+
+      {config && (
+        <p className="text-[11px] text-bdmuted">Last updated: {config.updated_at ? new Date(config.updated_at).toLocaleString() : "never"}</p>
+      )}
     </div>
   );
 }

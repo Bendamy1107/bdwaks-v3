@@ -480,3 +480,99 @@ export async function getOrderById(orderId) {
   if (error) throw error;
   return data;
 }
+
+// ---------------------------------------------------------------------------
+// INVENTORY MANAGEMENT
+// ---------------------------------------------------------------------------
+export async function getAllProductsForInventory() {
+  const { data, error } = await supabase
+    .from("products")
+    .select("id, name, brand, is_available, subcategory:subcategories(id, name, category:categories(id, name)), product_variants(id, size_label, cost_price, stock_qty)")
+    .order("name");
+  if (error) throw error;
+  return data;
+}
+
+export async function createCategory(name) {
+  const { data, error } = await supabase.from("categories").insert({ name }).select().single();
+  if (error) throw error;
+  return data;
+}
+
+export async function createSubcategory(categoryId, name) {
+  const { data, error } = await supabase.from("subcategories").insert({ category_id: categoryId, name }).select().single();
+  if (error) throw error;
+  return data;
+}
+
+export async function createProduct({ subcategoryId, name, brand, createdBy }) {
+  const { data, error } = await supabase
+    .from("products")
+    .insert({ subcategory_id: subcategoryId, name, brand, created_by: createdBy })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function createProductVariant({ productId, sizeLabel, costPrice, stockQty }) {
+  const { error } = await supabase.from("product_variants").insert({
+    product_id: productId, size_label: sizeLabel, cost_price: costPrice, stock_qty: stockQty,
+  });
+  if (error) throw error;
+}
+
+export async function updateVariantStock(variantId, stockQty) {
+  const { error } = await supabase.from("product_variants").update({ stock_qty: stockQty }).eq("id", variantId);
+  if (error) throw error;
+}
+
+export async function updateVariantCost(variantId, costPrice) {
+  const { error } = await supabase.from("product_variants").update({ cost_price: costPrice }).eq("id", variantId);
+  if (error) throw error;
+}
+
+export async function toggleProductAvailability(productId, isAvailable) {
+  const { error } = await supabase.from("products").update({ is_available: isAvailable }).eq("id", productId);
+  if (error) throw error;
+}
+
+export async function updateProductLowStockThreshold(productId, threshold) {
+  const { error } = await supabase.from("products").update({ low_stock_threshold: threshold }).eq("id", productId);
+  if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
+// VENDORS
+// ---------------------------------------------------------------------------
+export async function getAllVendors() {
+  const { data, error } = await supabase.from("vendors").select("*").order("name");
+  if (error) throw error;
+  return data;
+}
+
+export async function createVendor({ name, address, phone, productsSupplied, paymentTerms, createdBy }) {
+  const { error } = await supabase.from("vendors").insert({
+    name, address, phone, products_supplied: productsSupplied, payment_terms: paymentTerms, created_by: createdBy,
+  });
+  if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
+// PRICING CONFIG
+// ---------------------------------------------------------------------------
+export async function getPricingConfig() {
+  const { data, error } = await supabase.from("pricing_config").select("*").eq("id", 1).single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updatePricingConfigSecure({ staffId, markupPercent, serviceFeePercent, deliveryFeePer100m }) {
+  const { error } = await supabase.rpc("update_pricing_config", {
+    p_staff_id: staffId,
+    p_markup_percent: markupPercent,
+    p_service_fee_percent: serviceFeePercent,
+    p_delivery_fee_per_100m: deliveryFeePer100m,
+  });
+  if (error) throw error;
+}
