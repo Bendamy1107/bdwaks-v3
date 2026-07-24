@@ -570,3 +570,13 @@ export async function updatePricingConfigSecure({ staffId, markupPercent, servic
   });
   if (error) throw error;
 }
+
+export async function deleteCategory(categoryId) {
+  const { error } = await supabase.from("categories").delete().eq("id", categoryId);
+  if (error) throw error;
+}
+
+export async function deleteSubcategory(subcategoryId) {
+  const { error } = await supabase.from("subcategories").delete().eq("id", subcategoryId);
+  if (error) throw error;
+}

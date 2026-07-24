@@ -6,7 +6,7 @@ import {
   getAllCategoriesWithSubcategories, getAllProductsForInventory, createCategory, createSubcategory,
   createProduct, createProductVariant, updateVariantStock, updateVariantCost,
   toggleProductAvailability, updateProductLowStockThreshold, getAllVendors, createVendor,
-  getPricingConfig, updatePricingConfigSecure,
+  getPricingConfig, updatePricingConfigSecure, deleteCategory, deleteSubcategory,
 } from "../lib/api";
 
 const MODULES = ["admin", "finance", "payroll", "hr", "inventory", "rider_coordination", "general_manager"];
@@ -614,6 +614,24 @@ function CategoryManager({ categories, onChanged }) {
     catch (err) { console.error(err); alert("❌ Failed to add subcategory."); }
   };
 
+  const removeCategory = async (categoryId, name) => {
+    if (!window.confirm(`Delete category "${name}"? This also removes its subcategories.`)) return;
+    try { await deleteCategory(categoryId); onChanged(); }
+    catch (err) {
+      console.error(err);
+      alert("❌ Can't delete — this category (or one of its subcategories) still has products attached. Remove or reassign those products first.");
+    }
+  };
+
+  const removeSubcategory = async (subcategoryId, name) => {
+    if (!window.confirm(`Delete subcategory "${name}"?`)) return;
+    try { await deleteSubcategory(subcategoryId); onChanged(); }
+    catch (err) {
+      console.error(err);
+      alert("❌ Can't delete — this subcategory still has products attached. Remove or reassign those products first.");
+    }
+  };
+
   return (
     <div className="space-y-3">
       <div className="bg-white rounded-2xl p-4 border border-bdborder flex gap-2">
@@ -623,10 +641,16 @@ function CategoryManager({ categories, onChanged }) {
 
       {categories.map((c) => (
         <div key={c.id} className="bg-white rounded-2xl p-4 border border-bdborder">
-          <p className="text-sm font-semibold mb-2">🗂️ {c.name}</p>
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-sm font-semibold">🗂️ {c.name}</p>
+            <button onClick={() => removeCategory(c.id, c.name)} className="text-xs text-red-600">🗑️ Delete</button>
+          </div>
           <div className="flex flex-wrap gap-1.5 mb-2">
             {(c.subcategories || []).map((s) => (
-              <span key={s.id} className="text-[11px] px-2.5 py-1 rounded-full bg-bdivory">{s.name}</span>
+              <span key={s.id} className="text-[11px] px-2.5 py-1 rounded-full bg-bdivory flex items-center gap-1.5">
+                {s.name}
+                <button onClick={() => removeSubcategory(s.id, s.name)} className="text-red-500">✕</button>
+              </span>
             ))}
           </div>
           {subFor === c.id ? (
